@@ -179,3 +179,5 @@ ctre_sim/
 
 lib/vendor/*
 lib/build/*
+lib/*
+lib
