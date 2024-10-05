@@ -1,6 +1,7 @@
 plugins {
     id "java"
     id "edu.wpi.first.GradleRIO" version "2024.3.2"
+    id "co.uzzu.dotenv.gradle" version "4.0.0" // Plugin for .env file support
 }
 
 java {
@@ -8,28 +9,25 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
+repositories {
+    mavenCentral()
+    maven {
+        url 'https://jitpack.io'
+    }
+}
+
 def ROBOT_MAIN_CLASS = "frc.robot.Main"
 
-// Define my targets (RoboRIO) and artifacts (deployable files)
-// This is added by GradleRIO's backing project DeployUtils.
+// Define deploy target and artifacts
 deploy {
     targets {
         roborio(getTargetTypeClass('RoboRIO')) {
-            // Team number is loaded either from the .wpilib/wpilib_preferences.json
-            // or from command line. If not found an exception will be thrown.
-            // You can use getTeamOrDefault(team) instead of getTeamNumber if you
-            // want to store a team number in this file.
             team = project.frc.getTeamNumber()
             debug = project.frc.getDebugOrDefault(false)
 
             artifacts {
-                // First part is artifact name, 2nd is artifact type
-                // getTargetTypeClass is a shortcut to get the class type using a string
+                frcJava(getArtifactTypeClass('FRCJavaArtifact')) {}
 
-                frcJava(getArtifactTypeClass('FRCJavaArtifact')) {
-                }
-
-                // Static files artifact
                 frcStaticFileDeploy(getArtifactTypeClass('FileTreeArtifact')) {
                     files = project.fileTree('src/main/deploy')
                     directory = '/home/lvuser/deploy'
@@ -41,14 +39,45 @@ deploy {
 
 def deployArtifact = deploy.targets.roborio.artifacts.frcJava
 
-// Set to true to use debug for JNI.
 wpi.java.debugJni = false
 
-// Set this to true to enable desktop support.
 def includeDesktopSupport = false
 
-// Defining my dependencies. In this case, WPILib (+ friends), and vendor libraries.
-// Also defines JUnit 5.
+// Helper function to convert a Jitpack dependency to GitHub repository URL
+String fromJitpackToGitHubRepository(String jitpackRepo) {
+    def parts = jitpackRepo.split(':')
+    def user = parts[0].replace("com.github.", "")
+    def repo = parts[1]
+    return "https://github.com/${user}/${repo}.git"
+}
+
+// Function to clone and build GitHub repositories using the Python script
+def addGithubRepo(String repo) {
+    def github = fromJitpackToGitHubRepository(repo)
+    def prodFlag = env.allVariables().get("PROD_FLAG") // Read PROD_FLAG from .env
+
+    if (prodFlag == "true") {
+        // Use the Python script to build the repository
+        println "Building ${github} using Python script..."
+        exec {
+            commandLine "python3", "scripts/clone_and_build_repos.py", "${github}"
+        }
+
+        // Add the built jar files as dependencies
+        fileTree(dir: "lib/build", include: '*.jar').each { jarFile ->
+            dependencies {
+                implementation files(jarFile)
+            }
+        }
+    } else {
+        // In non-PROD mode, add the repo as a regular Jitpack dependency
+        dependencies {
+            implementation repo
+        }
+    }
+}
+
+// Define project dependencies
 dependencies {
     implementation wpi.java.deps.wpilib()
     implementation wpi.java.vendor.java()
@@ -67,6 +96,8 @@ dependencies {
     nativeRelease wpi.java.vendor.jniRelease(wpi.platforms.desktop)
     simulationRelease wpi.sim.enableRelease()
 
+    // addGithubRepo("com.github.lolhol:KeybindConfigurator:0.2") // Example usage
+
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
@@ -76,13 +107,11 @@ test {
     systemProperty 'junit.jupiter.extensions.autodetection.enabled', 'true'
 }
 
-// Simulation configuration (e.g. environment variables).
+// Simulation settings
 wpi.sim.addGui().defaultEnabled = true
 wpi.sim.addDriverstation()
 
-// Setting up my Jar File. In this case, adding all libraries into the main jar ('fat jar')
-// in order to make them all available at runtime. Also adding the manifest so WPILib
-// knows where to look for our Robot Class.
+// Create a fat jar (including all dependencies) and set the manifest for WPILib
 jar {
     from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
     from sourceSets.main.allSource
@@ -90,12 +119,12 @@ jar {
     duplicatesStrategy = DuplicatesStrategy.INCLUDE
 }
 
-// Configure jar and deploy tasks
+// Set the jar task for deployment
 deployArtifact.jarTask = jar
 wpi.java.configureExecutableTasks(jar)
 wpi.java.configureTestTasks(test)
 
-// Configure string concat to always inline compile
+// Configure the string concatenation setting for inline compilation
 tasks.withType(JavaCompile) {
     options.compilerArgs.add '-XDstringConcat=inline'
 }
