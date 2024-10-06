@@ -9,6 +9,10 @@ java {
     targetCompatibility = JavaVersion.VERSION_17
 }
 
+ext {
+    alreadyAdded = []
+}
+
 repositories {
     mavenCentral()
     maven {
@@ -43,39 +47,7 @@ wpi.java.debugJni = false
 
 def includeDesktopSupport = false
 
-// Helper function to convert a Jitpack dependency to GitHub repository URL
-String fromJitpackToGitHubRepository(String jitpackRepo) {
-    def parts = jitpackRepo.split(':')
-    def user = parts[0].replace("com.github.", "")
-    def repo = parts[1]
-    return "https://github.com/${user}/${repo}.git"
-}
-
-// Function to clone and build GitHub repositories using the Python script
-def addGithubRepo(String repo) {
-    def github = fromJitpackToGitHubRepository(repo)
-    def prodFlag = env.allVariables().get("PROD_FLAG") // Read PROD_FLAG from .env
-
-    if (prodFlag == "true") {
-        // Use the Python script to build the repository
-        println "Building ${github} using Python script..."
-        exec {
-            commandLine "python3", "scripts/clone_and_build_repos.py", "${github}"
-        }
-
-        // Add the built jar files as dependencies
-        fileTree(dir: "lib/build", include: '*.jar').each { jarFile ->
-            dependencies {
-                implementation files(jarFile)
-            }
-        }
-    } else {
-        // In non-PROD mode, add the repo as a regular Jitpack dependency
-        dependencies {
-            implementation repo
-        }
-    }
-}
+// addGithubRepo('lolhol', 'KeybindConfigurator', '0.2', true)
 
 // Define project dependencies
 dependencies {
@@ -96,7 +68,8 @@ dependencies {
     nativeRelease wpi.java.vendor.jniRelease(wpi.platforms.desktop)
     simulationRelease wpi.sim.enableRelease()
 
-    // addGithubRepo("com.github.lolhol:KeybindConfigurator:0.2") // Example usage
+    addGithubRepoJitPack("lolhol", "KeybindConfigurator", "0.2") // Example usage
+
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -127,4 +100,64 @@ wpi.java.configureTestTasks(test)
 // Configure the string concatenation setting for inline compilation
 tasks.withType(JavaCompile) {
     options.compilerArgs.add '-XDstringConcat=inline'
+}
+
+// ---------------- Helper functions ----------------
+
+String toJitpack(String user, String repo) {
+    return toJitpack(user, repo, "main-SNAPSHOT")
+}
+
+String toJitpack(String user, String repo, String version) {
+    return "com.github.${user}:${repo}:${version}"
+}
+
+String toGithub(String user, String repo) {
+    return "https://github.com/${user}/${repo}.git"
+}
+
+def addGithubRepoJitPack(String user, String repo, String version) {
+    addGithubRepo(user, repo, "com.github.${user}:${repo}:${version}")
+}
+
+def addGithubRepo(String user, String repo, String nonProductionImplementationString) {
+    addGithubRepo(user, repo, nonProductionImplementationString, env.allVariables().get("PROD_FLAG") == "true")
+}
+
+def addGithubRepo(String user, String repo, String nonProductionImplementationString, boolean isProduction) {
+    if (isProduction) {
+        println("")
+        println("Building ${user}/${repo}")
+        println("")
+        def output = new ByteArrayOutputStream()
+        exec {
+            commandLine "python3", "scripts/clone_and_build_repos.py", toGithub(user, repo)
+            standardOutput = output
+        }
+
+        def brightYellow = '\u001B[93m'
+
+        def reset = '\u001B[0m'
+
+        println("${brightYellow}${output.toString()}${reset}")
+        println("")
+        println("")
+        println("")
+
+        def jarFiles = fileTree(dir: "lib/build", include: '*.jar').filter { jarFile ->
+            !alreadyAdded.contains(jarFile)
+        }
+
+        dependencies {
+            implementation files(jarFiles)
+        }
+
+        alreadyAdded.addAll(jarFiles)
+
+        return;
+    }
+
+    dependencies {
+        implementation nonProductionImplementationString
+    }
 }
