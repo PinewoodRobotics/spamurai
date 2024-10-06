@@ -47,8 +47,6 @@ wpi.java.debugJni = false
 
 def includeDesktopSupport = false
 
-// addGithubRepo('lolhol', 'KeybindConfigurator', '0.2', true)
-
 // Define project dependencies
 dependencies {
     implementation wpi.java.deps.wpilib()
@@ -68,7 +66,7 @@ dependencies {
     nativeRelease wpi.java.vendor.jniRelease(wpi.platforms.desktop)
     simulationRelease wpi.sim.enableRelease()
 
-    addGithubRepoJitPack("lolhol", "KeybindConfigurator", "0.2") // Example usage
+    // addGithubRepoJitPack("lolhol", "KeybindConfigurator", "0.2") // Example usage
 
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
